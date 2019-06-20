@@ -68,3 +68,4 @@ And you'll have a new bot.
 ## Conclusion and stuff
 
 The scanner file (the trojan) is not weaponized so when you infect a bot you don't have any backconnection or backdoor functions, but you can write them by yourself... because it easy to write a simple reverse shell or a simple ddos botnet. 
+Remember to use this tool only for study purposes only, I created it to replicate the working of Mirai and this is also because I didn't weaponized that. ( Just saying before this shit becomes public )
